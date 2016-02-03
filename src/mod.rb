@@ -30,10 +30,10 @@ class Mod
   end
 
   def output
-    "\t[\"#{@dir}\"] = { #{name_comment}\n#{@configs.each(&:output)}\t},\n"
+    "\t[\"#{@dir}\"] = { #{name_comment}\n\t\tenabled = #{ @enabled ? 'true' : 'false' },\n#{ @configs.map(&:output).join }\t},\n"
   end
 
   def name_comment
-    "-- #{@info['name']}" if @info['name'] && @info['name'].size > 0
+    "-- #{@name}" if @name && @name.size > 0
   end
 end
