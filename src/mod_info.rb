@@ -3,17 +3,18 @@
 class ModInfo
   attr_accessor :dir
   attr_accessor :info
-  attr_accessor :configs
 
   def initialize(path, dir)
     @dir = dir
     @status = 'name'
     @dash = 0
     @name = ''
-    @value = ''
+    @data = ''
     @quota = false
+    @string_value = false
     @brace_name_stack = []
     @brace_stack = []
+    @dot = 0
 
     @info = {}
     @info_file = File.open(File.join(path, dir, 'modinfo.lua'))
@@ -21,27 +22,6 @@ class ModInfo
       desc: :description,
       options: :configuration_options,
     }
-    @configs = { enabled: false }
-  end
-
-  def output
-    result = "\t[\"#{@dir}\"] = { #{ "-- #{@info['name']}" if @info['name'] && @info['name'].size > 0 }\n"
-    @configs.each do |name, data|
-      result += "\t\t#{name} = #{ data.is_a?(String) ? %("#{data}") : data },\n"
-    end
-    result += "\t},\n"
-  end
-
-  def enabled=(enabled)
-    @configs[:enabled] = enabled
-  end
-
-  def enabled
-    @configs[:enabled]
-  end
-
-  def set_config(name, data)
-    @configs[name.to_sym] = data
   end
 
   def method_missing(method)
@@ -73,6 +53,7 @@ class ModInfo
   def handle_equal
     return if @status == 'comment'
 
+    @string_value = false
     @status = 'value'
   end
 
@@ -82,28 +63,29 @@ class ModInfo
     case @status
       when 'nl'
         @name = c
-        @value = ''
+        @data = ''
         @status = 'name'
       when 'brace_open'
         @brace_stack << {}
         @name = c
-        @value = ''
+        @data = ''
         @status = 'name'
       when 'name' then @name += c
-      when 'value' then @value += c
+      when 'value' then @data += c
     end
   end
 
   def handle_endline
     return if @brace_stack.any? || @status == 'brace_open'
-    @info[@name] = @value.is_a?(String) ? eval(@value) : @value if @status == 'value'
+    return @status = @status_before_wrap if @status == 'wrap'
+    @info[@name] = @string_value ? @data : eval(@data) if @status == 'value'
 
     @status = 'nl'
   end
 
   def handle_quota
     @quota = !@quota
-    handle_others('"')
+    @string_value = true
   end
 
   def handle_brace_open
@@ -119,6 +101,10 @@ class ModInfo
 
   def handle_brace_close
     return if @status == 'comment'
+
+    if @status == 'brace_open'
+      @brace_stack << {}
+    end
 
     if @brace_stack.size == 1
       @info[@brace_name_stack.pop] = @brace_stack.pop
@@ -137,26 +123,41 @@ class ModInfo
     return if @status == 'comment'
     return handle_others(',') if @quota
 
-    return if @name.empty? || @value.empty?
+    return if @name.empty?
     last_brace_object = @brace_stack[-1]
-    last_brace_object[@name] = @value.is_a?(String) ? eval(@value) : @value if @status == 'value'
+    last_brace_object[@name] = @string_value ? @data : eval(@data) if @status == 'value'
 
     @name = ''
-    @value = ''
+    @data = ''
     @status = 'name'
+  end
+
+  def handle_dot
+    return if @status == 'comment'
+
+    @dot += 1
+    if @dot >= 2
+      @status_before_wrap = @status
+      @status = 'wrap'
+      @dot = 0
+    end
+  end
+
+  def byte(c)
+    c.bytes[0]
   end
 
   def handle_char
     c = @info_file.readchar
-    case c
-      when /[ \t]/ then handle_space
-      when '-' then handle_dash
-      when /[\r\n]/ then handle_endline
-      when '=' then handle_equal
-      when '"' then handle_quota
-      when '{' then handle_brace_open
-      when '}' then handle_brace_close
-      when ',' then handle_comma
+    case byte(c)
+      when byte(' '), byte("\t") then handle_space
+      when byte('-') then handle_dash
+      when byte("\r"), byte("\n") then handle_endline
+      when byte('=') then handle_equal
+      when byte('"') then handle_quota
+      when byte('{') then handle_brace_open
+      when byte('}') then handle_brace_close
+      when byte(',') then handle_comma
       else handle_others(c)
     end
   end

@@ -1,0 +1,1 @@
+class ConfigOption < Struct.new(:desc, :data); end
